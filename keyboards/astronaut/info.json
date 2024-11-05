@@ -12,8 +12,8 @@
   },
   "processor": "RP2040",
   "usb": {
-      "device_version": "0.0.1",
-      "pid": "0x0000",
+      "device_version": "1.0.0",
+      "pid": "0x1234",
       "vid": "0xFEED"
   },
   "layouts": {
