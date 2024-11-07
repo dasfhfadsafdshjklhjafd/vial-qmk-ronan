@@ -334,7 +334,7 @@ void register_mouse(uint8_t mouse_keycode, bool pressed) {
     // should mousekeys send report, or does something else handle this?
     switch (mouse_keycode) {
 #    if defined(PS2_MOUSE_ENABLE) || defined(POINTING_DEVICE_ENABLE)
-        case KC_MS_BTN1 ... KC_MS_BTN8:
+        case QK_MOUSE_BUTTON_1 ... QK_MOUSE_BUTTON_8:
             // let pointing device handle the buttons
             // expand if/when it handles more of the code
 #        if defined(POINTING_DEVICE_ENABLE)
@@ -356,13 +356,11 @@ void register_mouse(uint8_t mouse_keycode, bool pressed) {
 
 #ifdef PS2_MOUSE_ENABLE
     // make sure that ps2 mouse has button report synced
-    if (KC_MS_BTN1 <= mouse_keycode && mouse_keycode <= KC_MS_BTN3) {
-        uint8_t tmp_button_msk = MOUSE_BTN_MASK(mouse_keycode - KC_MS_BTN1);
+    if (QK_MOUSE_BUTTON_1 <= mouse_keycode && mouse_keycode <= QK_MOUSE_BUTTON_3) {
+        uint8_t tmp_button_msk = MOUSE_BTN_MASK(mouse_keycode - QK_MOUSE_BUTTON_1);
         tp_buttons             = pressed ? tp_buttons | tmp_button_msk : tp_buttons & ~tmp_button_msk;
-    }
 #endif
-}
-
+   
 #ifdef BILATERAL_COMBINATIONS
 #    ifndef BILATERAL_COMBINATIONS_LIMIT_CHORD_TO_N_KEYS
 #        define BILATERAL_COMBINATIONS_LIMIT_CHORD_TO_N_KEYS 8 /* modifier state is stored as a single byte in the format (GASC)R(GASC)L */
@@ -888,7 +886,6 @@ if (QS_oneshot_tap_toggle > 1) {
                                 layer_off(action.layer_tap.val);
                                 break;
                             } else if (tap_count < QS_oneshot_tap_toggle) {
-                                layer_on(action.layer_tap.val);
                                 set_oneshot_layer(action.layer_tap.val, ONESHOT_START);
                             }
                         } else {
@@ -901,7 +898,6 @@ if (QS_oneshot_tap_toggle > 1) {
                         }
 } else {
                         if (event.pressed) {
-                            layer_on(action.layer_tap.val);
                             set_oneshot_layer(action.layer_tap.val, ONESHOT_START);
                         } else {
                             clear_oneshot_layer_state(ONESHOT_PRESSED);
@@ -1245,9 +1241,7 @@ __attribute__((weak)) void unregister_code(uint8_t code) {
  */
 __attribute__((weak)) void tap_code_delay(uint8_t code, uint16_t delay) {
     register_code(code);
-    for (uint16_t i = delay; i > 0; i--) {
-        wait_ms(1);
-    }
+    wait_ms(delay);
     unregister_code(code);
 }
 
