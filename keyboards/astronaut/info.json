@@ -1,6 +1,6 @@
 {
-  "manufacturer": "testtststst",
-  "keyboard_name": "testtest",
+  "manufacturer": ":3",
+  "keyboard_name": "Zib Zib",
   "maintainer": "xyz",
   "bootloader": "rp2040",
   "diode_direction": "COL2ROW",
