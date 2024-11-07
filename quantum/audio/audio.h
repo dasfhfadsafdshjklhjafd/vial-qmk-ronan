@@ -33,8 +33,7 @@ typedef union {
     struct {
         bool    enable : 1;
         bool    clicky_enable : 1;
-        bool    valid : 1;
-        uint8_t reserved : 5;
+        uint8_t level : 6;
     };
 } audio_config_t;
 
@@ -215,9 +214,9 @@ void audio_startup(void);
 // hardware interface
 
 // implementation in the driver_avr/arm_* respective parts
-void audio_driver_initialize_impl(void);
-void audio_driver_start_impl(void);
-void audio_driver_stop_impl(void);
+void audio_driver_initialize(void);
+void audio_driver_start(void);
+void audio_driver_stop(void);
 
 /**
  * @brief get the number of currently active tones
