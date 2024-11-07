@@ -18,7 +18,11 @@
         "xstddef": "c",
         "type_traits": "c",
         "utility": "c",
-        "ranges": "c"
+        "ranges": "c",
+        "xiosbase": "c",
+        "future": "c",
+        "regex": "c",
+        "system_error": "c"
     },
     "[markdown]": {
         "editor.trimAutoWhitespace": false,

@@ -63,10 +63,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        `----------------------------------'  `----------------------------------'
  */
     [_QWERTY] = LAYOUT(
-        KC_ESCAPE,   KC_B,    KC_L,    KC_D,    KC_W,    KC_Z,                                        KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    KC_BSPC,
-        KC_TAB,  LGUI_T(KC_N),    LALT_T(KC_R),    LCTL_T(KC_T),    LSFT_T(KC_S),    KC_G,                                        KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, CTL_QUOT,
-        KC_LSFT,  KC_Q,    KC_X,    KC_M,    KC_C,    KC_V,    MO(3), KC_CAPS,         FKEYS, KC_RBRC, KC_N,    KC_M,    KC_COMM, KC_DOT, KC_SLSH, KC_RSFT,
-                        TD(4),  KC_LSFT, KC_LCTL, KC_BSPC,   KC_NO,               SYM,   KC_SPC, KC_RALT, KC_RGUI, KC_APP
+        KC_ESCAPE,   KC_B,    KC_L,    KC_D,    KC_W,    KC_Z,                                        KC_QUOT,    KC_F,    KC_O,    KC_U,    KC_J,    KC_BSPC,
+        KC_TAB,  LGUI_T(KC_N),    LALT_T(KC_R),    LCTL_T(KC_T),    LSFT_T(KC_S),    KC_G,                                        KC_Y,    RSFT_T(KC_H),    RCTL_T(KC_A), RALT_T(KC_E),  RGUI_T(KC_I), KC_SCLN,
+        KC_LSFT,  KC_Q,    KC_X,    KC_M,    KC_C,    KC_V,    MO(3), KC_CAPS,         TD(0), MO(5), KC_K,    KC_P,    KC_COMM, KC_DOT, KC_SLSH, TD(1),
+                        TD(4),  KC_LSFT, KC_LCTL, KC_BSPC,   KC_NO,               KC_ENTER,   MO(2), LT(3,KC_SPACE), MO(1), KC_RALT
     ),
 
 
