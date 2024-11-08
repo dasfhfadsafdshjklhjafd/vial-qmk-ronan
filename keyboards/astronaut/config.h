@@ -7,12 +7,21 @@
 #define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT 1000U
 
 #define SERIAL_USART_TX_PIN GP0
-// #define MATRIX_ROWS 10
-// #define MATRIX_COLS 6
+
 #define MATRIX_ROW_PINS { GP29, GP28, GP27, GP14, GP15}  //somehow fried gp26
 #define MATRIX_COL_PINS { GP3, GP4, GP5, GP6, GP7, GP8}
 #define MATRIX_ROW_PINS_RIGHT { GP29, GP28, GP27, GP26, GP15 }  
-#define SPLIT_HAND_PIN B26
-
+//
+#define SPLIT_HAND_PIN GP26
+#define	SPLIT_HAND_PIN_LOW_IS_LEFT
+// flash this to left side (unconnected)
 #define DYNAMIC_KEYMAP_LAYER_COUNT 7
 // #define DYNAMIC_KEYMAP_LAYER_COUNT 1
+
+
+//swapping sides
+// #define MATRIX_ROW_PINS { GP29, GP28, GP27, GP26, GP15}  //somehow fried gp26
+// #define MATRIX_COL_PINS { GP3, GP4, GP5, GP6, GP7, GP8}
+// #define MATRIX_ROW_PINS_RIGHT {  GP29, GP28, GP27, GP14, GP15 }  
+// #define MASTER_RIGHT 
+// // flash this to the right side
