@@ -14,7 +14,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include QMK_KEYBOARD_H
-#include "key_override.h"
 #include "print.h"
 
 enum layers {
@@ -32,14 +31,14 @@ enum layers {
 
 
 // Aliases for readability
-#define QWERTY   DF(_QWERTY)
-#define COLEMAK  DF(_COLEMAK_DH)
-#define DVORAK   DF(_DVORAK)
+#define QWERTY   DF(_GRAPHITE)
+#define COLEMAK  DF(_SCROLL_NAV)
+#define DVORAK   DF(_BRACK_NUMPAD)
 
-#define SYM      MO(_SYM)
-#define NAV      MO(_NAV)
-#define FKEYS    MO(_FUNCTION)
-#define ADJUST   MO(_ADJUST)
+#define SYM      MO(_EMPTY4)
+#define NAV      MO(_MOUSE_FKEYS)
+#define FKEYS    MO(_TO_LEFT)
+#define ADJUST   MO(_GAME)
 
 #define CTL_ESC  MT(MOD_LCTL, KC_ESC)
 #define CTL_QUOT MT(MOD_RCTL, KC_QUOTE)
@@ -70,7 +69,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      | Enter|      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_QWERTY] = LAYOUT(
+    [_GRAPHITE] = LAYOUT(
         KC_ESCAPE,   KC_B,    KC_L,    KC_D,    KC_W,    KC_Z,                                        KC_QUOT,    KC_F,    KC_O,    KC_U,    KC_J,    KC_BSPC,
         KC_TAB,  LGUI_T(KC_N),    LALT_T(KC_R),    LCTL_T(KC_T),    LSFT_T(KC_S),    KC_G,                                        KC_Y,    RSFT_T(KC_H),    RCTL_T(KC_A), RALT_T(KC_E),  RGUI_T(KC_I), KC_SCLN,
         KC_LSFT,  KC_Q,    KC_X,    KC_M,    KC_C,    KC_V,    MO(3), KC_CAPS,         TD(0), MO(5), KC_K,    KC_P,    KC_COMM, KC_DOT, KC_SLSH, TD(1),
@@ -92,7 +91,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      | Enter|      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_DVORAK] = LAYOUT(
+    [_BRACK_NUMPAD] = LAYOUT(
      KC_TAB  ,KC_QUOTE,KC_COMM,  KC_DOT,   KC_P ,   KC_Y ,                                        KC_F,   KC_G ,  KC_C ,   KC_R ,  KC_L , KC_BSPC,
      CTL_ESC , KC_A ,  KC_O   ,  KC_E  ,   KC_U ,   KC_I ,                                        KC_D,   KC_H ,  KC_T ,   KC_N ,  KC_S , CTL_MINS,
      KC_LSFT ,KC_SCLN, KC_Q   ,  KC_J  ,   KC_K ,   KC_X , KC_LBRC,KC_CAPS,     FKEYS  , KC_RBRC, KC_B,   KC_M ,  KC_W ,   KC_V ,  KC_Z , KC_RSFT,
@@ -113,7 +112,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      | Enter|      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_COLEMAK_DH] = LAYOUT(
+    [_SCROLL_NAV] = LAYOUT(
      KC_TAB  , KC_Q ,  KC_W   ,  KC_F  ,   KC_P ,   KC_B ,                                        KC_J,   KC_L ,  KC_U ,   KC_Y ,KC_SCLN, KC_BSPC,
      CTL_ESC , KC_A ,  KC_R   ,  KC_S  ,   KC_T ,   KC_G ,                                        KC_M,   KC_N ,  KC_E ,   KC_I ,  KC_O , CTL_QUOT,
      KC_LSFT , KC_Z ,  KC_X   ,  KC_C  ,   KC_D ,   KC_V , KC_LBRC,KC_CAPS,     FKEYS  , KC_RBRC, KC_K,   KC_H ,KC_COMM, KC_DOT ,KC_SLSH, KC_RSFT,
@@ -134,7 +133,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      |      |      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_NAV] = LAYOUT(
+    [_MOUSE_FKEYS] = LAYOUT(
       _______, _______, _______, _______, _______, _______,                                     KC_PGUP, KC_HOME, KC_UP,   KC_END,  KC_VOLU, KC_DEL,
       _______, KC_LGUI, KC_LALT, KC_LCTL, KC_LSFT, _______,                                     KC_PGDN, KC_LEFT, KC_DOWN, KC_RGHT, KC_VOLD, KC_INS,
       _______, _______, _______, _______, _______, _______, _______, KC_SCRL, _______, _______,KC_PAUSE, KC_MPRV, KC_MPLY, KC_MNXT, KC_MUTE, KC_PSCR,
@@ -155,7 +154,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      |      |      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_SYM] = LAYOUT(
+    [_EMPTY4] = LAYOUT(
       KC_GRV ,   KC_1 ,   KC_2 ,   KC_3 ,   KC_4 ,   KC_5 ,                                       KC_6 ,   KC_7 ,   KC_8 ,   KC_9 ,   KC_0 , KC_EQL ,
      KC_TILD , KC_EXLM,  KC_AT , KC_HASH,  KC_DLR, KC_PERC,                                     KC_CIRC, KC_AMPR, KC_ASTR, KC_LPRN, KC_RPRN, KC_PLUS,
      KC_PIPE , KC_BSLS, KC_COLN, KC_SCLN, KC_MINS, KC_LBRC, KC_LCBR, _______, _______, KC_RCBR, KC_RBRC, KC_UNDS, KC_COMM,  KC_DOT, KC_SLSH, KC_QUES,
@@ -176,7 +175,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      |      |      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_FUNCTION] = LAYOUT(
+    [_TO_LEFT] = LAYOUT(
       _______,  KC_F9 ,  KC_F10,  KC_F11,  KC_F12, _______,                                     _______, _______, _______, _______, _______, _______,
       _______,  KC_F5 ,  KC_F6 ,  KC_F7 ,  KC_F8 , _______,                                     _______, KC_RSFT, KC_RCTL, KC_LALT, KC_RGUI, _______,
       _______,  KC_F1 ,  KC_F2 ,  KC_F3 ,  KC_F4 , _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
@@ -197,7 +196,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  *                        |      |      |      |      |      |  |      |      |      |      |      |
  *                        `----------------------------------'  `----------------------------------'
  */
-    [_ADJUST] = LAYOUT(
+    [_GAME] = LAYOUT(
       _______, _______, _______, QWERTY , _______, _______,                                    _______, _______, _______, _______,  _______, _______,
       _______, _______, _______, DVORAK , _______, _______,                                    RGB_TOG, RGB_SAI, RGB_HUI, RGB_VAI,  RGB_MOD, _______,
       _______, _______, _______, COLEMAK, _______, _______,_______, _______, _______, _______, _______, RGB_SAD, RGB_HUD, RGB_VAD, RGB_RMOD, _______,
@@ -252,25 +251,25 @@ bool oled_task_user(void) {
         // Host Keyboard Layer Status
         oled_write_P(PSTR("Layer: "), false);
         switch (get_highest_layer(layer_state|default_layer_state)) {
-            case _QWERTY:
+            case _GRAPHITE:
                 oled_write_P(PSTR("QWERTY\n"), false);
                 break;
-            case _DVORAK:
+            case _BRACK_NUMPAD:
                 oled_write_P(PSTR("Dvorak\n"), false);
                 break;
-            case _COLEMAK_DH:
+            case _SCROLL_NAV:
                 oled_write_P(PSTR("Colemak-DH\n"), false);
                 break;
-            case _NAV:
+            case _MOUSE_FKEYS:
                 oled_write_P(PSTR("Nav\n"), false);
                 break;
-            case _SYM:
+            case _EMPTY4:
                 oled_write_P(PSTR("Sym\n"), false);
                 break;
-            case _FUNCTION:
+            case _TO_LEFT:
                 oled_write_P(PSTR("Function\n"), false);
                 break;
-            case _ADJUST:
+            case _GAME:
                 oled_write_P(PSTR("Adjust\n"), false);
                 break;
             default:
@@ -325,15 +324,6 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 DELETE THIS LINE TO UNCOMMENT (2/2) */
 
 
-bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-  // If console is enabled, it will print the matrix position and status of each key pressed
-#ifdef CONSOLE_ENABLE
-    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n", keycode, record->event.key.col, record->event.key.row, record->event.pressed, record->event.time, record->tap.interrupted, record->tap.count);
-#endif 
-  return true;
-}
-
-
 // layer_state_t layer_state_set_user(layer_state_t state) {
 //     if (layer_state_cmp(state, GAMING_LAYER_1) || 
 //         layer_state_cmp(state, GAMING_LAYER_2) || 
@@ -346,33 +336,49 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 //     return state;
 // }
 
-bool combo_should_trigger(uint16_t combo_index, combo_t *combo, uint16_t keycode, keyrecord_t *record) {
-    // Disable combos on both gaming layers
+// keep combos off on both gaming layers
+bool combo_should_trigger(uint16_t idx, combo_t *c, uint16_t keycode, keyrecord_t *record) {
     return !(layer_state_is(_GAME) || layer_state_is(_GMAP));
 }
 
 
-// Generate two overrides per letter: Ctrl+Ltr→Num and Shift+Ltr→Num, active only on _GMAP
-#define OV_PAIR(LTR, NUM) \
-    const key_override_t ko_c_##LTR = ko_make_with_layers(MOD_MASK_CTRL,  KC_##LTR, KC_##NUM, LMASK(_GMAP)); \
-    const key_override_t ko_s_##LTR = ko_make_with_layers(MOD_MASK_SHIFT, KC_##LTR, KC_##NUM, LMASK(_GMAP))
+static inline uint16_t map_letter_to_num(uint16_t kc) {
+    switch (kc) {
+        case KC_S: return KC_1;
+        case KC_D: return KC_2;
+        case KC_F: return KC_3;
+        case KC_X: return KC_4;
+        case KC_C: return KC_5;
+        case KC_V: return KC_6;
+        case KC_W: return KC_7;
+        case KC_E: return KC_8;
+        case KC_R: return KC_9;
+        case KC_A: return KC_0;   // “A as 0”
+        default:   return KC_NO;
+    }
+}
 
-// Map: sdf→123, xcv→456, wer→789, a->0
-OV_PAIR(S, 1);
-OV_PAIR(D, 2);
-OV_PAIR(F, 3);
-OV_PAIR(X, 4);
-OV_PAIR(C, 5);
-OV_PAIR(V, 6);
-OV_PAIR(W, 7);
-OV_PAIR(E, 8);
-OV_PAIR(R, 9);
-OV_PAIR(A, 0);
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+#ifdef CONSOLE_ENABLE
+    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n", keycode, record->event.key.col, record->event.key.row, record->event.pressed, record->event.time, record->tap.interrupted, record->tap.count);
+#endif
+    if (layer_state_is(_GMAP) && record->event.pressed) {
+        uint8_t mods = get_mods() | get_oneshot_mods();   // supports OSM
+        bool has_ctrl  = (mods & MOD_MASK_CTRL);
+        bool has_shift = (mods & MOD_MASK_SHIFT);
 
-// Register overrides
-const key_override_t *key_overrides[] = {
-    &ko_c_S, &ko_s_S, &ko_c_D, &ko_s_D, &ko_c_F, &ko_s_F,
-    &ko_c_X, &ko_s_X, &ko_c_C, &ko_s_C, &ko_c_V, &ko_s_V,
-    &ko_c_W, &ko_s_W, &ko_c_E, &ko_s_E, &ko_c_R, &ko_s_R,
-    &ko_c_A, &ko_s_A,
-};
+        uint16_t num = map_letter_to_num(keycode);        // S→1, …, A→0
+        if ((has_ctrl || has_shift) && num != KC_NO) {
+            if (has_ctrl && has_shift) {
+                tap_code16(LCTL(LSFT(num)));              // Ctrl+Shift+num
+            } else if (has_ctrl) {
+                tap_code16(LCTL(num));                    // Ctrl+num
+            } else {
+                tap_code16(LSFT(num));                    // Shift+num
+            }
+            return false;                                  // swallow letter
+        }
+    }
+
+    return true;
+}
