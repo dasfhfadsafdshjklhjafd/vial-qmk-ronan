@@ -14,16 +14,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include QMK_KEYBOARD_H
+#include "key_override.h"
 #include "print.h"
 
 enum layers {
-    _QWERTY = 0,
-    _DVORAK,
-    _COLEMAK_DH,
-    _NAV,
-    _SYM,
-    _FUNCTION,
-    _ADJUST,
+    _GRAPHITE = 0,      // default
+    _BRACK_NUMPAD,      // 1: brackets left, numpad right
+    _SCROLL_NAV,        // 2: scrolling / arrows
+    _MOUSE_FKEYS,       // 3: mouse + F-keys (left)
+    _EMPTY4,            // 4: empty
+    _TO_LEFT,           // 5: TO-layer (left only)
+    _GAME,              // 6: gaming (clean)
+    _GMAP,              // 7: gaming with letter→number overrides
+    _NUMLEFT,           // 8: numbers on left (used via MO() in games)
+    _EMPTY9             // 9: empty, used via MO(9) from layer 7
 };
 
 
@@ -330,14 +334,45 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 }
 
 
-layer_state_t layer_state_set_user(layer_state_t state) {
-    if (layer_state_cmp(state, GAMING_LAYER_1) || 
-        layer_state_cmp(state, GAMING_LAYER_2) || 
-        layer_state_cmp(state, GAMING_LAYER_3) || 
-        layer_state_cmp(state, GAMING_LAYER_4)) {
-        combo_disable();  // Disable combos for any gaming layer
-    } else {
-        combo_enable();   // Enable combos for non-gaming layers
-    }
-    return state;
+// layer_state_t layer_state_set_user(layer_state_t state) {
+//     if (layer_state_cmp(state, GAMING_LAYER_1) || 
+//         layer_state_cmp(state, GAMING_LAYER_2) || 
+//         layer_state_cmp(state, GAMING_LAYER_3) || 
+//         layer_state_cmp(state, GAMING_LAYER_4)) {
+//         combo_disable();  // Disable combos for any gaming layer
+//     } else {
+//         combo_enable();   // Enable combos for non-gaming layers
+//     }
+//     return state;
+// }
+
+bool combo_should_trigger(uint16_t combo_index, combo_t *combo, uint16_t keycode, keyrecord_t *record) {
+    // Disable combos on both gaming layers
+    return !(layer_state_is(_GAME) || layer_state_is(_GMAP));
 }
+
+
+// Generate two overrides per letter: Ctrl+Ltr→Num and Shift+Ltr→Num, active only on _GMAP
+#define OV_PAIR(LTR, NUM) \
+    const key_override_t ko_c_##LTR = ko_make_with_layers(MOD_MASK_CTRL,  KC_##LTR, KC_##NUM, LMASK(_GMAP)); \
+    const key_override_t ko_s_##LTR = ko_make_with_layers(MOD_MASK_SHIFT, KC_##LTR, KC_##NUM, LMASK(_GMAP))
+
+// Map: sdf→123, xcv→456, wer→789, a->0
+OV_PAIR(S, 1);
+OV_PAIR(D, 2);
+OV_PAIR(F, 3);
+OV_PAIR(X, 4);
+OV_PAIR(C, 5);
+OV_PAIR(V, 6);
+OV_PAIR(W, 7);
+OV_PAIR(E, 8);
+OV_PAIR(R, 9);
+OV_PAIR(A, 0);
+
+// Register overrides
+const key_override_t *key_overrides[] = {
+    &ko_c_S, &ko_s_S, &ko_c_D, &ko_s_D, &ko_c_F, &ko_s_F,
+    &ko_c_X, &ko_s_X, &ko_c_C, &ko_s_C, &ko_c_V, &ko_s_V,
+    &ko_c_W, &ko_s_W, &ko_c_E, &ko_s_E, &ko_c_R, &ko_s_R,
+    &ko_c_A, &ko_s_A,
+};
