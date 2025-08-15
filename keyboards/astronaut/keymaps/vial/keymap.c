@@ -41,6 +41,10 @@ enum layers {
 #define CTL_QUOT MT(MOD_RCTL, KC_QUOTE)
 #define CTL_MINS MT(MOD_RCTL, KC_MINUS)
 #define ALT_ENT  MT(MOD_LALT, KC_ENT)
+#define GAMING_LAYER_1 6
+#define GAMING_LAYER_2 7
+#define GAMING_LAYER_3 8
+#define GAMING_LAYER_4 9
 
 // Note: LAlt/Enter (ALT_ENT) is not the same thing as the keyboard shortcut Alt+Enter.
 // The notation `mod/tap` denotes a key that activates the modifier `mod` when held down, and
@@ -325,3 +329,15 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
   return true;
 }
 
+
+layer_state_t layer_state_set_user(layer_state_t state) {
+    if (layer_state_cmp(state, GAMING_LAYER_1) || 
+        layer_state_cmp(state, GAMING_LAYER_2) || 
+        layer_state_cmp(state, GAMING_LAYER_3) || 
+        layer_state_cmp(state, GAMING_LAYER_4)) {
+        combo_disable();  // Disable combos for any gaming layer
+    } else {
+        combo_enable();   // Enable combos for non-gaming layers
+    }
+    return state;
+}
