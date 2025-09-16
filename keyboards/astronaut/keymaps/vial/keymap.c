@@ -44,10 +44,7 @@ enum layers {
 #define CTL_QUOT MT(MOD_RCTL, KC_QUOTE)
 #define CTL_MINS MT(MOD_RCTL, KC_MINUS)
 #define ALT_ENT  MT(MOD_LALT, KC_ENT)
-#define GAMING_LAYER_1 6
-#define GAMING_LAYER_2 7
-#define GAMING_LAYER_3 8
-#define GAMING_LAYER_4 9
+
 
 // Note: LAlt/Enter (ALT_ENT) is not the same thing as the keyboard shortcut Alt+Enter.
 // The notation `mod/tap` denotes a key that activates the modifier `mod` when held down, and
@@ -324,23 +321,20 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 DELETE THIS LINE TO UNCOMMENT (2/2) */
 
 
-// layer_state_t layer_state_set_user(layer_state_t state) {
-//     if (layer_state_cmp(state, GAMING_LAYER_1) || 
-//         layer_state_cmp(state, GAMING_LAYER_2) || 
-//         layer_state_cmp(state, GAMING_LAYER_3) || 
-//         layer_state_cmp(state, GAMING_LAYER_4)) {
-//         combo_disable();  // Disable combos for any gaming layer
-//     } else {
-//         combo_enable();   // Enable combos for non-gaming layers
-//     }
-//     return state;
-// }
+layer_state_t layer_state_set_user(layer_state_t state) {
+    const uint32_t gaming_mask =
+        (1UL << _GAME)   |
+        (1UL << _GMAP)   |
+        (1UL << _NUMLEFT)|
+        (1UL << _EMPTY9);
 
-// keep combos off on both gaming layers
-bool combo_should_trigger(uint16_t idx, combo_t *c, uint16_t keycode, keyrecord_t *record) {
-    return !(layer_state_is(_GAME) || layer_state_is(_GMAP));
+    if (state & gaming_mask) {
+        combo_disable();
+    } else {
+        combo_enable();
+    }
+    return state;
 }
-
 
 static inline uint16_t map_letter_to_num(uint16_t kc) {
     switch (kc) {
@@ -360,23 +354,49 @@ static inline uint16_t map_letter_to_num(uint16_t kc) {
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 #ifdef CONSOLE_ENABLE
-    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n", keycode, record->event.key.col, record->event.key.row, record->event.pressed, record->event.time, record->tap.interrupted, record->tap.count);
+    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n",
+            keycode, record->event.key.col, record->event.key.row,
+            record->event.pressed, record->event.time,
+            record->tap.interrupted, record->tap.count);
 #endif
-    if (layer_state_is(_GMAP) && record->event.pressed) {
-        uint8_t mods = get_mods() | get_oneshot_mods();   // supports OSM
-        bool has_ctrl  = (mods & MOD_MASK_CTRL);
-        bool has_shift = (mods & MOD_MASK_SHIFT);
 
-        uint16_t num = map_letter_to_num(keycode);        // S→1, …, A→0
-        if ((has_ctrl || has_shift) && num != KC_NO) {
-            if (has_ctrl && has_shift) {
-                tap_code16(LCTL(LSFT(num)));              // Ctrl+Shift+num
-            } else if (has_ctrl) {
-                tap_code16(LCTL(num));                    // Ctrl+num
-            } else {
-                tap_code16(LSFT(num));                    // Shift+num
-            }
-            return false;                                  // swallow letter
+    if (record->event.pressed && layer_state_is(_GMAP)) {
+        uint8_t saved_mods    = get_mods();
+        uint8_t saved_oneshot = get_oneshot_mods();
+        uint8_t combined      = saved_mods | saved_oneshot;
+
+        bool has_ctrl  = (combined & MOD_MASK_CTRL);
+        bool has_shift = (combined & MOD_MASK_SHIFT);
+
+        // If the pressed keycode could be an MT/LT token, low byte usually contains the tap key.
+        uint16_t base_kc = keycode & 0xFF;
+        uint16_t num = map_letter_to_num(base_kc);
+
+        if (num != KC_NO && (has_ctrl || has_shift)) {
+            // Preserve handedness: prefer right modifiers if they were held
+            uint16_t ctrl_kc  = (saved_mods & MOD_BIT(KC_RCTL)) ? KC_RCTL : KC_LCTL;
+            uint16_t shift_kc = (saved_mods & MOD_BIT(KC_RSFT)) ? KC_RSFT : KC_LSFT;
+
+            // Clear current mods so no other held modifiers leak into the injected event
+            clear_mods();
+            clear_oneshot_mods();
+
+            // Register only the modifiers we want
+            if (has_ctrl)  register_code(ctrl_kc);
+            if (has_shift) register_code(shift_kc);
+
+            // Tap the mapped number
+            tap_code(num);
+
+            // Unregister the ones we registered
+            if (has_shift) unregister_code(shift_kc);
+            if (has_ctrl)  unregister_code(ctrl_kc);
+
+            // Restore previous modifier and oneshot state
+            set_mods(saved_mods);
+            set_oneshot_mods(saved_oneshot);
+
+            return false; // swallow original key
         }
     }
 
