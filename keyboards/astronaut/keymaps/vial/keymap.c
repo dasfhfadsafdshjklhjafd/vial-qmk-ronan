@@ -30,6 +30,46 @@ enum layers {
     _EMPTY9             // 9: empty, used via MO(9) from layer 7
 };
 
+const char *hlc_tft_layer_label(uint8_t layer) {
+    static const char *const layer_names[] = {
+        [_GRAPHITE]      = "Graphite",
+        [_BRACK_NUMPAD]  = "BrNum",
+        [_SCROLL_NAV]    = "Nav",
+        [_MOUSE_FKEYS]   = "Mouse",
+        [_EMPTY4]        = "L4",
+        [_TO_LEFT]       = "To-L",
+        [_GAME]          = "Game",
+        [_GMAP]          = "GMAP",
+        [_NUMLEFT]       = "NumL",
+        [_EMPTY9]        = "L9",
+    };
+
+    if (layer < ARRAY_SIZE(layer_names) && layer_names[layer]) {
+        return layer_names[layer];
+    }
+    return "Layer ?";
+}
+
+const char *hlc_tft_layer_short(uint8_t layer) {
+    static const char *const layer_short[] = {
+        [_GRAPHITE]      = "Gra",
+        [_BRACK_NUMPAD]  = "Bra",
+        [_SCROLL_NAV]    = "Nav",
+        [_MOUSE_FKEYS]   = "Mou",
+        [_EMPTY4]        = "4",
+        [_TO_LEFT]       = "To",
+        [_GAME]          = "Game",
+        [_GMAP]          = "Gmap",
+        [_NUMLEFT]       = "NuL",
+        [_EMPTY9]        = "9",
+    };
+
+    if (layer < ARRAY_SIZE(layer_short) && layer_short[layer]) {
+        return layer_short[layer];
+    }
+    return "?";
+}
+
 
 // Aliases for readability
 #define QWERTY   DF(_GRAPHITE)

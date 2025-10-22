@@ -6,6 +6,8 @@
 #include "hlc_tft_display.h"
 
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include "wait.h"     // for wait_ms()
 
 #if defined(RP2040) || defined(ARDUINO_ARCH_RP2040) || defined(MCU_RP2040)
@@ -42,6 +44,22 @@
 #define GRID_ORIGIN_X          HUD_RESERVED_WIDTH
 #define GRID_ORIGIN_Y          0
 
+__attribute__((weak)) const char *hlc_tft_layer_label(uint8_t layer) {
+    switch (layer) {
+        case 0: return "Layer 0";
+        case 1: return "Layer 1";
+        case 2: return "Layer 2";
+        case 3: return "Layer 3";
+        case 4: return "Layer 4";
+        case 5: return "Layer 5";
+        case 6: return "Layer 6";
+        case 7: return "Layer 7";
+        case 8: return "Layer 8";
+        case 9: return "Layer 9";
+        default: return "Layer ?";
+    }
+}
+
 static inline void clear_hud_background(void) {
     if (lcd) {
         qp_rect(lcd, 0, 0, HUD_RESERVED_WIDTH - 1, HUD_RESERVED_HEIGHT - 1, 0, 0, 0, true);
@@ -55,7 +73,9 @@ static void draw_status_text(const char *text, painter_font_handle_t font, uint1
 
     uint16_t bg_left   = (STATUS_TEXT_X > STATUS_TEXT_BG_PADDING) ? (STATUS_TEXT_X - STATUS_TEXT_BG_PADDING) : 0;
     uint16_t bg_top    = (y > STATUS_TEXT_BG_PADDING) ? (y - STATUS_TEXT_BG_PADDING) : 0;
-    uint16_t bg_right  = STATUS_TEXT_X + 96;
+    size_t   len       = text ? strlen(text) : 0;
+    uint16_t text_px   = len ? (uint16_t)(len * (font->line_height - 6)) : font->line_height;
+    uint16_t bg_right  = STATUS_TEXT_X + text_px + STATUS_TEXT_BG_PADDING + STATUS_TEXT_SHADOW_OFFSET;
     uint16_t bg_bottom = y + font->line_height + STATUS_TEXT_BG_PADDING;
 
     if (bg_right >= LCD_WIDTH) {
@@ -84,9 +104,16 @@ static void draw_status_text(const char *text, painter_font_handle_t font, uint1
                         0, 0, 0);
 }
 
-static const char *caps =   "Caps";
-static const char *num =    "Num";
-static const char *scroll = "Scroll";
+static const uint8_t layer_color_map[][3] = {
+    {HSV_LAYER_0},
+    {HSV_LAYER_1},
+    {HSV_LAYER_2},
+    {HSV_LAYER_3},
+    {HSV_LAYER_4},
+    {HSV_LAYER_5},
+    {HSV_LAYER_6},
+    {HSV_LAYER_7},
+};
 
 static painter_font_handle_t Retron27;
 static painter_font_handle_t Retron27_underline;
@@ -95,8 +122,10 @@ static int color_value = 0;
 
 painter_device_t lcd = NULL;
 
-static led_t          last_led_usb_state = (led_t){0};
-static layer_state_t  last_layer_state   = 0;
+static led_t          last_led_usb_state       = (led_t){0};
+static layer_state_t  last_layer_state         = 0;
+static layer_state_t  last_default_layer_state = 0;
+static const uint8_t  layer_color_fallback[3]  = {HSV_LAYER_UNDEF};
 
 static bool force_full_redraw = false;
 
@@ -106,6 +135,22 @@ static bool force_full_redraw = false;
 
 static uint32_t last_input_time = 0;
 static bool     display_awake   = true;
+
+__attribute__((weak)) const char *hlc_tft_layer_short(uint8_t layer) {
+    switch (layer) {
+        case 0: return "G";   // Graphite
+        case 1: return "Br";  // Bracket+Num
+        case 2: return "N";   // Nav
+        case 3: return "M";   // Mouse
+        case 4: return "4";
+        case 5: return "T";   // To-Left
+        case 6: return "Gm";  // Game
+        case 7: return "P";   // GMAP
+        case 8: return "L";   // Num Left
+        case 9: return "9";
+        default: return "?";
+    }
+}
 
 /* --- Sleep / Wake helpers --- */
 void display_do_sleep(void) {
@@ -251,44 +296,50 @@ void update_display(void) {
         force_full_redraw = true;
     }
 
-    // LED indicators: explicit fg/bg HSV constants used inline to avoid unused vars
     led_t now = host_keyboard_led_state();
-    if (force_full_redraw || now.raw != last_led_usb_state.raw) {
+    bool  layer_changed = (last_layer_state != layer_state) || (last_default_layer_state != default_layer_state);
+
+    if (force_full_redraw || now.raw != last_led_usb_state.raw || layer_changed) {
         uint16_t y;
 
-        if (force_full_redraw) {
+        if (force_full_redraw || layer_changed) {
             clear_hud_background();
         }
 
-        // Caps
+        const char *caps_text = now.caps_lock ? "CAPS" : "caps";
+
+        // Caps indicator
         y = LCD_HEIGHT - Retron27->line_height * 3 - 15;
         if (now.caps_lock) {
-            draw_status_text(caps, Retron27_underline, y, 17, 191, 245);
+            draw_status_text(caps_text, Retron27_underline, y, 17, 191, 245);
         } else {
-            draw_status_text(caps, Retron27, y, 17, 104, 77);
+            draw_status_text(caps_text, Retron27, y, 17, 104, 77);
         }
 
-        // Num
+        // Active layer label
+        uint8_t active_layer = get_highest_layer(layer_state | default_layer_state);
+        const uint8_t *active_color =
+            (active_layer < (sizeof(layer_color_map) / sizeof(layer_color_map[0])))
+                ? layer_color_map[active_layer]
+                : layer_color_fallback;
+
+        char active_buffer[24];
+        snprintf(active_buffer, sizeof(active_buffer), "L:%s", hlc_tft_layer_short(active_layer));
+
         y = LCD_HEIGHT - Retron27->line_height * 2 - 10;
-        if (now.num_lock) {
-            draw_status_text(num, Retron27_underline, y, 142, 191, 245);
-        } else {
-            draw_status_text(num, Retron27, y, 142, 104, 77);
-        }
+        draw_status_text(active_buffer, Retron27_underline, y, active_color[0], active_color[1], active_color[2]);
 
-        // Scroll
+        // Default layer label
+        uint8_t base_layer = get_highest_layer(default_layer_state ? default_layer_state : (1UL << 0));
+        char base_buffer[24];
+        snprintf(base_buffer, sizeof(base_buffer), "B:%s", hlc_tft_layer_short(base_layer));
+
         y = LCD_HEIGHT - Retron27->line_height - 5;
-        if (now.scroll_lock) {
-            draw_status_text(scroll, Retron27_underline, y, 202, 191, 245);
-        } else {
-            draw_status_text(scroll, Retron27, y, 202, 104, 77);
-        }
-
-        last_led_usb_state = now;
+        draw_status_text(base_buffer, Retron27, y, 202, 104, 77);
     }
 
     // Layer number (recolored image). Load/close image handles here.
-    if (force_full_redraw || last_layer_state != layer_state) {
+    if (force_full_redraw || layer_changed) {
         painter_image_handle_t img;
         switch (get_highest_layer(layer_state | default_layer_state)) {
         case 0: img = qp_load_image_mem(gfx_0); qp_drawimage_recolor(lcd, 5, 5, img, HSV_LAYER_0, HSV_BLACK); qp_close_image(img); break;
@@ -305,6 +356,10 @@ void update_display(void) {
     }
 
     force_full_redraw = false;
+
+    last_led_usb_state       = now;
+    last_layer_state         = layer_state;
+    last_default_layer_state = default_layer_state;
 }
 
 /* === QMK hooks === */

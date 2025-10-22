@@ -32,3 +32,7 @@ void display_do_wake(void);
 // Call this from your keymap when a key is pressed to update the display inactivity timer
 // and wake the display if it's sleeping.
 void hlc_tft_on_activity(void);
+
+// Optional: keymaps can override to provide human-readable layer labels
+const char *hlc_tft_layer_label(uint8_t layer);
+const char *hlc_tft_layer_short(uint8_t layer);
