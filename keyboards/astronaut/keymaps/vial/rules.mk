@@ -4,10 +4,13 @@ VIAL_ENABLE = yes
 CONSOLE_ENABLE = yes
 DEFERRED_EXEC_ENABLE = yes
 KEY_OVERRIDE_ENABLE = yes
+WPM_ENABLE = yes
 
 # ensure the painter driver headers are on the include path
 CFLAGS += -Idrivers/painter -Idrivers/painter/generic
 CFLAGS += -Ikeyboards/astronaut/tft_display
+OPT_DEFS += -DSHOW_LAYER_LABEL=0
+OPT_DEFS += -DSHOW_LAYER_GLYPH=1
 
 
 # In keyboards/astronaut/keymaps/vial/rules.mk
@@ -31,4 +34,3 @@ SRC += \
   tft_display/graphics/numbers/8.qgf.c \
   tft_display/graphics/numbers/9.qgf.c \
   tft_display/graphics/numbers/undef.qgf.c
-
