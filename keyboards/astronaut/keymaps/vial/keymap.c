@@ -15,6 +15,7 @@
  */
 #include QMK_KEYBOARD_H
 #include "print.h"
+#include "hlc_tft_display.h"
 
 enum layers {
     _GRAPHITE = 0,      // default
@@ -321,20 +322,33 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 DELETE THIS LINE TO UNCOMMENT (2/2) */
 
 
+// helpers
+static inline bool is_game_layer_active(void) {
+    return layer_state_is(_GAME) || layer_state_is(_GMAP) ||
+           layer_state_is(_NUMLEFT) || layer_state_is(_EMPTY9);
+}
+
+static inline bool is_game_movement_key(uint16_t kc) {
+    switch (kc) {
+        case KC_S: case KC_D: case KC_F: case KC_C: return true;
+        default: return false;
+    }
+}
+
+// layer state: disable combos and clear oneshots when entering a gaming layer
 layer_state_t layer_state_set_user(layer_state_t state) {
     const uint32_t gaming_mask =
-        (1UL << _GAME)   |
-        (1UL << _GMAP)   |
-        (1UL << _NUMLEFT)|
-        (1UL << _EMPTY9);
+        (1UL << _GAME) | (1UL << _GMAP) | (1UL << _NUMLEFT) | (1UL << _EMPTY9);
 
     if (state & gaming_mask) {
         combo_disable();
+        clear_oneshot_mods(); // important: avoid leftover oneshot interfering
     } else {
         combo_enable();
     }
     return state;
 }
+
 
 static inline uint16_t map_letter_to_num(uint16_t kc) {
     switch (kc) {
@@ -352,14 +366,51 @@ static inline uint16_t map_letter_to_num(uint16_t kc) {
     }
 }
 
-bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-#ifdef CONSOLE_ENABLE
-    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n",
-            keycode, record->event.key.col, record->event.key.row,
-            record->event.pressed, record->event.time,
-            record->tap.interrupted, record->tap.count);
+// Compatibility tap-key extractor for MT/LT (supports different QMK macro names)
+#if defined(IS_LAYER_TAP)
+    #define _IS_LAYER_TAP IS_LAYER_TAP
+#elif defined(IS_QK_LAYER_TAP)
+    #define _IS_LAYER_TAP IS_QK_LAYER_TAP
+#else
+    #define _IS_LAYER_TAP(kc) 0
 #endif
 
+#if defined(IS_MOD_TAP)
+    #define _IS_MOD_TAP IS_MOD_TAP
+#elif defined(IS_QK_MOD_TAP)
+    #define _IS_MOD_TAP IS_QK_MOD_TAP
+#else
+    #define _IS_MOD_TAP(kc) 0
+#endif
+
+static inline uint16_t tap_kc(uint16_t kc) {
+    if (_IS_LAYER_TAP(kc)) return QK_LAYER_TAP_GET_TAP_KEYCODE(kc);
+    if (_IS_MOD_TAP(kc))   return QK_MOD_TAP_GET_TAP_KEYCODE(kc);
+    return kc;
+}
+
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+
+
+#ifdef CONSOLE_ENABLE
+    // Optional debug for S events (can be left enabled for diagnostics)
+    if (tap_kc(keycode) == KC_S) {
+        uprintf("DBG S: %s row=%u col=%u layers=0x%08lX highest=%u mods=0x%02X\n",
+                record->event.pressed ? "PRESSED" : "RELEASED",
+                record->event.key.row, record->event.key.col,
+                (unsigned long)(layer_state | default_layer_state),
+                get_highest_layer(layer_state | default_layer_state),
+                get_mods());
+    }
+#endif
+
+    if (record->event.pressed) {
+        // Wake/refresh the TFT inactivity timer on any key press
+        hlc_tft_on_activity();
+    }
+
+    // GMAP: Ctrl/Shift + letter -> Ctrl/Shift + number (safe press/release)
     if (record->event.pressed && layer_state_is(_GMAP)) {
         uint8_t saved_mods    = get_mods();
         uint8_t saved_oneshot = get_oneshot_mods();
@@ -368,37 +419,31 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         bool has_ctrl  = (combined & MOD_MASK_CTRL);
         bool has_shift = (combined & MOD_MASK_SHIFT);
 
-        // If the pressed keycode could be an MT/LT token, low byte usually contains the tap key.
-        uint16_t base_kc = keycode & 0xFF;
-        uint16_t num = map_letter_to_num(base_kc);
+        uint16_t kc  = tap_kc(keycode);
+        uint16_t num = map_letter_to_num(kc);
 
         if (num != KC_NO && (has_ctrl || has_shift)) {
-            // Preserve handedness: prefer right modifiers if they were held
             uint16_t ctrl_kc  = (saved_mods & MOD_BIT(KC_RCTL)) ? KC_RCTL : KC_LCTL;
             uint16_t shift_kc = (saved_mods & MOD_BIT(KC_RSFT)) ? KC_RSFT : KC_LSFT;
 
-            // Clear current mods so no other held modifiers leak into the injected event
             clear_mods();
             clear_oneshot_mods();
 
-            // Register only the modifiers we want
-            if (has_ctrl)  register_code(ctrl_kc);
-            if (has_shift) register_code(shift_kc);
+            if (has_ctrl)  register_code16(ctrl_kc);
+            if (has_shift) register_code16(shift_kc);
 
-            // Tap the mapped number
-            tap_code(num);
+            register_code16(num);
+            unregister_code16(num);
 
-            // Unregister the ones we registered
-            if (has_shift) unregister_code(shift_kc);
-            if (has_ctrl)  unregister_code(ctrl_kc);
+            if (has_shift) unregister_code16(shift_kc);
+            if (has_ctrl)  unregister_code16(ctrl_kc);
 
-            // Restore previous modifier and oneshot state
             set_mods(saved_mods);
             set_oneshot_mods(saved_oneshot);
-
             return false; // swallow original key
         }
     }
 
+    // Default: let QMK handle everything (this keeps layer 6 plain KC_S behavior)
     return true;
 }

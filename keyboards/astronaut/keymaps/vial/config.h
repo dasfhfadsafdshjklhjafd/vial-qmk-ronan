@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #pragma once
+#define FORCE_NKRO
 
 #define VIAL_KEYBOARD_UID {0x04, 0x7F, 0x41, 0xF3, 0x39, 0xD8, 0x1F, 0xEA}
 #define VIAL_UNLOCK_COMBO_ROWS { 0, 1 }
@@ -18,3 +19,35 @@
 #define BILATERAL_COMBINATIONS_ALLOW_SAMESIDED_AFTER 1000 /* ms */
 #define BILATERAL_COMBINATIONS_TYPING_STREAK_TIMEOUT 160  /* ms */
 #define BILATERAL_COMBINATIONS_TYPING_STREAK_MODMASK (~MOD_MASK_SHIFT)
+
+// SPI1 on RP2040 (pins 10/11 map to the SPI1 peripheral)
+#define SPI_DRIVER   SPID1
+#define SPI_SCK_PIN   GP10
+#define SPI_MOSI_PIN  GP11
+#define SPI_MISO_PIN   NO_PIN  
+
+// ST7789V3 control pins
+#define LCD_RST_PIN   GP9
+#define LCD_CS_PIN    GP13
+#define LCD_DC_PIN    GP12
+
+// Panel geometry (edit to match your module)
+#define LCD_WIDTH     240
+#define LCD_HEIGHT    280    // 280 if your panel is 240x280
+#define LCD_ROTATION  QP_ROTATION_180
+#define LCD_OFFSET_X  0
+#define LCD_OFFSET_Y  20
+
+#define QUANTUM_PAINTER_DISPLAY_TIMEOUT (15UL * 60UL * 1000UL)
+#define TFT_INACTIVITY_TIMEOUT_MS (15UL * 60UL * 1000UL)
+
+// SPI timing
+#define LCD_SPI_DIVISOR 8
+#define LCD_SPI_MODE    3
+
+// Painter config
+#define QUANTUM_PAINTER_SUPPORTS_NATIVE_COLORS TRUE
+#define ST7789_NUM_DEVICES 1
+// #define ST7789_NO_AUTOMATIC_VIEWPORT_OFFSETS #not needed can cause misalignment
+// #define SURFACE_NUM_DEVICES 1 #not needed can cause misalignment
+#define TFT_INACTIVITY_TIMEOUT_MS (15UL * 60UL * 1000UL) 
