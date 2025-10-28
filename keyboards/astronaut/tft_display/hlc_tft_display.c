@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "wpm.h"
 #include "wait.h"     // for wait_ms()
@@ -18,6 +19,12 @@
 #else
 #    define HAVE_ROSC 0
 #endif
+
+#ifndef ARRAY_SIZE
+#    define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
+__attribute__((weak)) bool process_record_user(uint16_t keycode, keyrecord_t *record);
 
 // Fonts / images (ensure your rules.mk adds -Ikeyboards/astronaut/tft_display)
 #include "graphics/fonts/Retron2000-27.qff.h"
@@ -54,8 +61,13 @@
 #define WAVE_WIDTH             (WAVE_SAMPLE_COUNT * WAVE_SAMPLE_WIDTH)
 #define WAVE_HEIGHT            22
 #define WAVE_LEFT              10
-#define WAVE_TOP               (LCD_HEIGHT - WAVE_HEIGHT - 14)
-#define WAVE_BASELINE_Y        (WAVE_TOP + WAVE_HEIGHT - 3)
+
+// Raise the scope a bit more off the bottom; tweak this number to taste
+#define WAVE_BOTTOM_GAP        28
+#define WAVE_TOP               (LCD_HEIGHT - WAVE_HEIGHT - WAVE_BOTTOM_GAP)
+
+// Use the midline (oscilloscope-style) instead of bottom baseline
+#define WAVE_BASELINE_Y        (WAVE_TOP + (WAVE_HEIGHT / 2))
 
 #define WPM_RESERVED_LEFT      (LCD_WIDTH - 72)
 #define WPM_RESERVED_TOP       (LCD_HEIGHT - 46)
@@ -66,6 +78,7 @@
 #define WPM_PANEL_RIGHT  (LCD_WIDTH - 1)
 #define WPM_PANEL_BOTTOM (LCD_HEIGHT - 1)
 
+#if SHOW_LAYER_LABEL
 static const uint8_t layer_color_map[][3] = {
     {HSV_LAYER_0},
     {HSV_LAYER_1},
@@ -77,6 +90,11 @@ static const uint8_t layer_color_map[][3] = {
     {HSV_LAYER_7},
 };
 
+static const uint8_t  layer_color_fallback[3]  = {HSV_LAYER_UNDEF};
+#endif
+
+
+
 static painter_font_handle_t Retron27;
 static painter_font_handle_t Retron27_underline;
 
@@ -87,7 +105,6 @@ painter_device_t lcd = NULL;
 static led_t          last_led_usb_state       = (led_t){0};
 static layer_state_t  last_layer_state         = 0;
 static layer_state_t  last_default_layer_state = 0;
-static const uint8_t  layer_color_fallback[3]  = {HSV_LAYER_UNDEF};
 
 static bool force_full_redraw = false;
 
@@ -105,20 +122,266 @@ static bool force_full_redraw = false;
 #    define SHOW_LAYER_LABEL 0
 #endif
 
+#ifndef SHOW_MORSE_CAPTION
+#    define SHOW_MORSE_CAPTION 0
+#endif
+
 static uint32_t last_input_time = 0;
 static bool     display_awake   = true;
-static uint8_t  wave_phase                 = 0;
-static uint32_t wave_last_tick            = 0;
 static uint8_t  last_wave_color_slot      = 255;
 static bool     wave_initialized          = false;
+static uint8_t  last_wave_band            = 0xFF;
 static uint8_t  wave_samples[WAVE_SAMPLE_COUNT] = {0};
+
+#define MORSE_RECENT_HISTORY_LEN  18
+#define MORSE_IDLE_TIMEOUT_MS   10000
+
+static char     morse_recent_history[MORSE_RECENT_HISTORY_LEN];
+static uint8_t  morse_recent_len = 0;
+static char     morse_last_drawn_caption[MORSE_RECENT_HISTORY_LEN + 1] = {0};
+
+static uint32_t morse_last_input_ms     = 0;
+// ---------- Morse (plain pulses) ----------
+#define MORSE_UNIT_MS 204            // morse time unit (dot=1, dash=3). Lower = faster.
+
+// Base color for the Morse waveform tail (HSV 0..255) – muted Nostromo lime
+#define MORSE_BASE_H  96
+#define MORSE_BASE_S  88
+#define MORSE_BASE_V 204
+
+typedef struct {
+    uint16_t threshold_wpm;  // minimum smoothed WPM for this band
+    uint8_t  head_h;
+    uint8_t  head_s;
+    uint8_t  head_v;
+} morse_color_band_t;
+
+// Head colors (newest columns) shift warmer as WPM increases; keep saturation modest
+static const morse_color_band_t morse_color_bands[] = {
+    {  0,  86,  92, 210},   // calm typing -> gentle yellow-green accent
+    {100,  58, 120, 218},   // picking up speed -> muted yellow
+    {110,  36, 142, 220},   // fast -> softened amber
+    {120,  18, 168, 214},   // very fast -> warm red-orange without neon
+};
+
+#define MORSE_THICKNESS 3            // vertical thickness (pixels) of the Morse pulses
+
+// phrases to loop (edit to taste)
+static const char *morse_phrases[] = { "SOS", "NOSTROMO", "HELP"};
+
+static uint8_t  morse_timeline[1024];  // 0=OFF, 1=ON
+static size_t   morse_len = 0;
+static size_t   morse_pos = 0;
+static size_t   morse_phrase_idx = 0;
+static uint32_t morse_last_tick = 0;
+
+static inline uint8_t lerp_u8(uint8_t a, uint8_t b, uint16_t t_num, uint16_t t_den) {
+    // linear interpolate (a..b) with t in [0..1] represented as t_num/t_den
+    int16_t da = (int16_t)b - (int16_t)a;
+    return (uint8_t)(a + (int32_t)da * t_num / (int32_t)t_den);
+}
+
+static inline uint8_t lerp_hue8(uint8_t h1, uint8_t h2, uint16_t t_num, uint16_t t_den) {
+    // shortest-arc hue interpolation in 0..255
+    int16_t dh = (int16_t)h2 - (int16_t)h1;
+    if (dh > 127)  dh -= 256;
+    if (dh < -128) dh += 256;
+    int16_t h = (int16_t)h1 + (int32_t)dh * t_num / (int32_t)t_den;
+    if (h < 0) h += 256;
+    return (uint8_t)(h & 0xFF);
+}
+
+static const char *morse_code_for_char(char c) {
+    switch ((c >= 'a' && c <= 'z') ? (c - 32) : c) {
+        case 'A': return ".-";   case 'B': return "-..."; case 'C': return "-.-.";
+        case 'D': return "-..";  case 'E': return ".";    case 'F': return "..-.";
+        case 'G': return "--.";  case 'H': return "...."; case 'I': return "..";
+        case 'J': return ".---"; case 'K': return "-.-";  case 'L': return ".-..";
+        case 'M': return "--";   case 'N': return "-.";   case 'O': return "---";
+        case 'P': return ".--."; case 'Q': return "--.-"; case 'R': return ".-.";
+        case 'S': return "...";  case 'T': return "-";    case 'U': return "..-";
+        case 'V': return "...-"; case 'W': return ".--";  case 'X': return "-..-";
+        case 'Y': return "-.--"; case 'Z': return "--..";
+        case '0': return "-----"; case '1': return ".----"; case '2': return "..---";
+        case '3': return "...--"; case '4': return "....-"; case '5': return ".....";
+        case '6': return "-...."; case '7': return "--..."; case '8': return "---..";
+        case '9': return "----.";
+        case '.': return ".-.-.-";  case ',': return "--..--";
+        case '?': return "..--..";  case '!': return "-.-.--";
+        case '/': return "-..-.";   case '(': return "-.--.";
+        case ')': return "-.--.-";  case '&': return ".-...";
+        case ':': return "---...";  case ';': return "-.-.-.";
+        case '=': return "-...-";   case '+': return ".-.-.";
+        case '-': return "-....-";  case '_': return "..--.-";
+        case '"': return ".-..-.";  case '$': return "...-..-";
+        case '\'': return ".----."; case '@': return ".--.-.";
+        default:  return "";
+    }
+}
+
+static void build_morse_timeline(const char *phrase, uint8_t trailing_gap_units) {
+    size_t pos = 0;
+    if (!phrase) {
+        morse_len = 0;
+        morse_pos = 0;
+        return;
+    }
+    const size_t max_len = sizeof(morse_timeline);
+
+    for (const char *p = phrase; *p && pos < max_len; ++p) {
+        char c = *p;
+        if (c == ' ') {
+            for (int k = 0; k < 7 && pos < max_len; ++k) morse_timeline[pos++] = 0; // canonical word gap (7 units)
+            continue;
+        }
+        const char *code = morse_code_for_char(c);
+        if (!code || !*code) {
+            for (int k = 0; k < 3 && pos < max_len; ++k) morse_timeline[pos++] = 0; // unknown char gap
+            continue;
+        }
+        for (const char *e = code; *e && pos < max_len; ++e) {
+            int on_units = (*e == '.') ? 1 : 3;
+            for (int u = 0; u < on_units && pos < max_len; ++u) morse_timeline[pos++] = 1; // ON
+            if (e[1] && pos < max_len) morse_timeline[pos++] = 0; // intra-element gap
+        }
+        char next = *(p + 1);
+        if (next != '\0' && next != ' ') {
+            for (int k = 0; k < 3 && pos < max_len; ++k) morse_timeline[pos++] = 0; // letter gap
+        }
+    }
+    for (int k = 0; k < trailing_gap_units && pos < max_len; ++k) morse_timeline[pos++] = 0; // trailing gap
+
+    morse_len = pos;
+    morse_pos = 0;
+    morse_last_tick = timer_read32();
+}
+
+
+static void __attribute__((unused)) morse_recent_to_string(char *out, size_t out_len) {
+    size_t copy_len = (morse_recent_len < (out_len - 1)) ? morse_recent_len : (out_len - 1);
+    if (copy_len) {
+        memcpy(out, &morse_recent_history[morse_recent_len - copy_len], copy_len);
+    }
+    out[copy_len] = '\0';
+}
+
+
+
+static void ensure_morse_timeline(void) {
+    if (morse_len && morse_pos < morse_len) {
+        return;
+    }
+
+    morse_len = 0;
+    morse_pos = 0;
+
+    // Always play the configured phrases in a loop (no live-typing feed).
+    build_morse_timeline(morse_phrases[morse_phrase_idx], 7);
+    morse_phrase_idx = (morse_phrase_idx + 1) % (ARRAY_SIZE(morse_phrases));
+}
+
+
+static bool morse_translate_keycode(uint16_t keycode, bool shifted, char *morse_char, char *display_char, bool *is_backspace) {
+    *is_backspace = false;
+    *morse_char   = 0;
+    *display_char = 0;
+
+    if (keycode >= KC_A && keycode <= KC_Z) {
+        char base = (char)('a' + (keycode - KC_A));
+        *display_char = shifted ? (char)toupper((unsigned char)base) : base;
+        *morse_char   = (char)toupper((unsigned char)base);
+        return true;
+    }
+
+    switch (keycode) {
+        case KC_1: *display_char = shifted ? '!' : '1'; *morse_char = shifted ? '!' : '1'; return true;
+        case KC_2: *display_char = shifted ? '@' : '2'; *morse_char = shifted ? '@' : '2'; return true;
+        case KC_3: *display_char = shifted ? '#' : '3'; *morse_char = shifted ? '#' : '3'; return true;
+        case KC_4: *display_char = shifted ? '$' : '4'; *morse_char = shifted ? '$' : '4'; return true;
+        case KC_5: *display_char = shifted ? '%' : '5'; *morse_char = shifted ? '%' : '5'; return true;
+        case KC_6: *display_char = shifted ? '^' : '6'; *morse_char = shifted ? '^' : '6'; return true;
+        case KC_7: *display_char = shifted ? '&' : '7'; *morse_char = shifted ? '&' : '7'; return true;
+        case KC_8: *display_char = shifted ? '*' : '8'; *morse_char = shifted ? '*' : '8'; return true;
+        case KC_9: *display_char = shifted ? '(' : '9'; *morse_char = shifted ? '(' : '9'; return true;
+        case KC_0: *display_char = shifted ? ')' : '0'; *morse_char = shifted ? ')' : '0'; return true;
+
+        case KC_SPACE: *display_char = ' '; *morse_char = ' '; return true;
+        case KC_TAB:   *display_char = ' '; *morse_char = ' '; return true;
+        case KC_ENTER: *display_char = ' '; *morse_char = ' '; return true;
+
+        case KC_MINUS:    *display_char = shifted ? '_' : '-'; *morse_char = shifted ? '_' : '-'; return true;
+        case KC_EQUAL:    *display_char = shifted ? '+' : '='; *morse_char = shifted ? '+' : '='; return true;
+        case KC_LBRC: *display_char = shifted ? '{' : '['; *morse_char = shifted ? '{' : '['; return true;
+        case KC_RBRC: *display_char = shifted ? '}' : ']'; *morse_char = shifted ? '}' : ']'; return true;
+        case KC_BSLS:    *display_char = shifted ? '|' : '\\'; *morse_char = shifted ? '|' : '\\'; return true;
+        case KC_COLON:   *display_char = shifted ? ':' : ';'; *morse_char = shifted ? ':' : ';'; return true;
+        case KC_QUOTE:    *display_char = shifted ? '"' : '\''; *morse_char = shifted ? '"' : '\''; return true;
+        case KC_GRAVE:    *display_char = shifted ? '~' : '`'; *morse_char = shifted ? '~' : '`'; return true;
+        case KC_COMMA:    *display_char = shifted ? '<' : ','; *morse_char = shifted ? '<' : ','; return true;
+        case KC_DOT:      *display_char = shifted ? '>' : '.'; *morse_char = shifted ? '>' : '.'; return true;
+        case KC_SLASH:    *display_char = shifted ? '?' : '/'; *morse_char = shifted ? '?' : '/'; return true;
+
+        case KC_BSPC:
+            *is_backspace = true;
+            return true;
+
+        default:
+            break;
+    }
+
+    return false;
+}
+
+
+bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
+    if (record->event.pressed) {
+        uint16_t base_code = keycode;
+        bool     tapped    = true;
+
+#ifdef QK_MOD_TAP
+        if (IS_QK_MOD_TAP(keycode) || IS_QK_LAYER_TAP(keycode)) {
+            if (!(record->tap.count && !record->tap.interrupted)) {
+                tapped = false;
+            }
+            base_code = (uint16_t)(keycode & 0xFF);
+        }
+#endif
+
+#ifdef QK_TAP_DANCE
+        if (IS_QK_TAP_DANCE(keycode)) {
+            tapped = false;
+        }
+#endif
+#ifdef QK_ONE_SHOT_MOD
+        if (IS_QK_ONE_SHOT_MOD(keycode)) {
+            tapped = false;
+        }
+#endif
+
+        if (tapped) {
+            uint8_t mods = get_mods() | get_oneshot_mods() | get_weak_mods();
+            bool    shifted = (mods & MOD_MASK_SHIFT) != 0;
+
+            bool backspace = false;
+            char morse_char = 0;
+            char display_char = 0;
+            if (morse_translate_keycode(base_code, shifted, &morse_char, &display_char, &backspace)) {
+                // keep the last-input timestamp so the display still wakes / idle logic works
+                morse_last_input_ms = timer_read32();
+
+                // --- DISABLE live-echo of typed keys:
+                // Don't push typed keys into any live queue and don't update recent caption.
+                // This preserves playing the predefined morse_phrases loop only.
+            }
+        }
+    }
+
+    return process_record_user(keycode, record);
+}
 
 // WPM smoothing and draw cache
 static uint16_t last_drawn_wpm              = 0xFFFF;
 static uint16_t wpm_ema                     = 0;     // EMA state (alpha ≈ 0.25)
-
-static const uint8_t wave_pattern[] = {0, 2, 6, 12, 18, 12, 6, 2, 0, 1, 4, 9, 14, 18, 14, 9, 4, 1, 0, 0};
-#define WAVE_PATTERN_LENGTH (sizeof(wave_pattern) / sizeof(wave_pattern[0]))
 
 __attribute__((weak)) const char *hlc_tft_layer_label(uint8_t layer) {
     switch (layer) {
@@ -185,93 +448,120 @@ static void render_waveform(uint8_t layer, bool force) {
         return;
     }
 
-    /*
-     * More "alien" pattern (asymmetric peaks + softer return)
-     * You can tune these numbers to taste.
-     */
-    static const uint8_t alien_pattern[] = {0, 2, 4, 7, 11, 16, 18, 6, 3, 1, 0, 0};
-    const size_t alien_pattern_len = sizeof(alien_pattern) / sizeof(alien_pattern[0]);
-
+    // init storage first time
     if (!wave_initialized) {
-        for (uint8_t i = 0; i < WAVE_SAMPLE_COUNT; ++i) {
-            uint8_t base = alien_pattern[i % alien_pattern_len];
-            wave_samples[i] = (uint8_t)((base * (WAVE_HEIGHT - 4)) / 18);
-        }
-        wave_phase = 0;
-        wave_last_tick = timer_read32();
+        for (uint8_t i = 0; i < WAVE_SAMPLE_COUNT; ++i) wave_samples[i] = 0;
         wave_initialized = true;
         last_wave_color_slot = 255;
+        last_wave_band = 0xFF;
         force = true;
     }
+    ensure_morse_timeline();
 
     uint32_t now = timer_read32();
+    bool     changed = force;
 
-    /* Use QMK WPM as pacing; fallback to get_current_wpm(). */
-    uint16_t avg_wpm = get_current_wpm();
-    if (avg_wpm > 255) avg_wpm = 255; // defensive clamp
-
-    /* Map typing speed to an interval — faster typing => faster motion */
-    uint16_t interval_ms;
-    if (avg_wpm > 100) {
-        interval_ms = 200;
-    } else if (avg_wpm > 60) {
-        interval_ms = 300;
-    } else if (avg_wpm > 20) {
-        interval_ms = 420;
-    } else {
-        interval_ms = 680;
+    uint16_t wpm_for_color = wpm_ema ? wpm_ema : get_current_wpm();
+    if (wpm_for_color > 200) {
+        wpm_for_color = 200;
     }
 
-    bool changed = force;
-
-    if (wave_last_tick == 0) {
-        wave_last_tick = now;
+    uint8_t color_band = 0;
+    for (uint8_t i = 0; i < (uint8_t)ARRAY_SIZE(morse_color_bands); ++i) {
+        if (wpm_for_color >= morse_color_bands[i].threshold_wpm) {
+            color_band = i;
+        } else {
+            break;
+        }
     }
 
-    if (timer_elapsed32(wave_last_tick) >= interval_ms) {
-        /* shift samples left */
+    if (color_band != last_wave_band) {
+        changed = true;
+    }
+
+    if (morse_last_tick == 0) morse_last_tick = now;
+
+    // advance one unit (dot=1, dash=3) at MORSE_UNIT_MS cadence
+    if (timer_elapsed32(morse_last_tick) >= MORSE_UNIT_MS) {
+        // scroll left
         memmove(&wave_samples[0], &wave_samples[1], WAVE_SAMPLE_COUNT - 1);
 
-        /* pattern + phase */
-        uint8_t pattern_value = alien_pattern[wave_phase % alien_pattern_len];
-        wave_phase = (wave_phase + 1) % alien_pattern_len;
-
-        uint8_t amplitude = (uint8_t)((pattern_value * (WAVE_HEIGHT - 4)) / 18);
-
-        /* occasional big spike */
-        if ((rand() & 31) == 0) {
-            amplitude = (uint8_t)(WAVE_HEIGHT - 4);
+        // next sample: 0/1
+        uint8_t next_on = 0;
+        if (morse_len && morse_pos < morse_len) {
+            next_on = morse_timeline[morse_pos];
         }
+        wave_samples[WAVE_SAMPLE_COUNT - 1] = next_on;
 
-        /* random "notch" to make it jagged */
-        if ((rand() & 15) == 0) {
-            amplitude = (uint8_t)(amplitude / 2);
-        }
+        // advance timeline (wrap to next phrase)
+        morse_pos++;
+        ensure_morse_timeline();
 
-        /* small random wobble */
-        if ((rand() & 7) == 0) {
-            int16_t tweak = amplitude + (int16_t)((rand() % 7) - 3);
-            if (tweak < 0) tweak = 0;
-            if (tweak > WAVE_HEIGHT - 4) tweak = WAVE_HEIGHT - 4;
-            amplitude = (uint8_t)tweak;
-        }
-
-        wave_samples[WAVE_SAMPLE_COUNT - 1] = amplitude;
-        wave_last_tick = now;
+        morse_last_tick = now;
         changed = true;
     }
 
-    if (layer != last_wave_color_slot) {
-        changed = true;
+    // always redraw if layer changed (in case you later tie color to layer)
+    if (layer != last_wave_color_slot) changed = true;
+
+#if SHOW_MORSE_CAPTION
+    // Caption draw: only clear/draw when there is an actual change (and only if there's text)
+    bool caption_changed = false;
+    char caption_buf[MORSE_RECENT_HISTORY_LEN + 1] = {0};
+    bool want_caption = false;
+    bool had_caption  = false;
+    if (Retron27) {
+        morse_recent_to_string(caption_buf, sizeof(caption_buf));
+        want_caption = (caption_buf[0] != '\0');
+        had_caption  = (morse_last_drawn_caption[0] != '\0');
+        if (want_caption && had_caption) {
+            caption_changed = (strncmp(caption_buf, morse_last_drawn_caption, sizeof(caption_buf)) != 0);
+        } else {
+            caption_changed = (want_caption != had_caption);
+        }
     }
 
-    if (!changed) return;
+    if (!changed && !caption_changed) {
+        return;
+    }
 
-    /* color for this layer */
-    size_t layer_count = sizeof(layer_color_map) / sizeof(layer_color_map[0]);
-    const uint8_t *color = (layer < layer_count) ? layer_color_map[layer] : layer_color_fallback;
+    if (caption_changed && Retron27) {
+        uint16_t line_height = Retron27->line_height;
+        uint16_t char_w      = (line_height > 6) ? (line_height - 6) : line_height;
+        uint16_t caption_y   = (WAVE_TOP > (line_height + 6)) ? (uint16_t)(WAVE_TOP - line_height - 6)
+                                                              : (WAVE_TOP > line_height ? (uint16_t)(WAVE_TOP - line_height) : 0);
+        uint16_t clear_left  = WAVE_LEFT;
+        uint16_t clear_top   = (caption_y > STATUS_TEXT_BG_PADDING) ? (caption_y - STATUS_TEXT_BG_PADDING) : 0;
+        uint16_t clear_right = clear_left + (uint16_t)(MORSE_RECENT_HISTORY_LEN * char_w) + (STATUS_TEXT_BG_PADDING * 2) + STATUS_TEXT_SHADOW_OFFSET;
+        if (clear_right >= LCD_WIDTH) {
+            clear_right = LCD_WIDTH - 1;
+        }
+        uint16_t clear_bottom = caption_y + line_height + STATUS_TEXT_BG_PADDING;
+        if (clear_bottom >= LCD_HEIGHT) {
+            clear_bottom = LCD_HEIGHT - 1;
+        }
+        if (clear_bottom >= WAVE_TOP) {
+            clear_bottom = (WAVE_TOP > 0) ? (uint16_t)(WAVE_TOP - 1) : 0;
+        }
 
-    /* clear waveform area */
+        // Only clear if we used to have caption or we are about to draw one
+        if (had_caption || want_caption) {
+            qp_rect(lcd, clear_left, clear_top, clear_right, clear_bottom, 0, 0, 0, true);
+        }
+        if (want_caption) {
+            draw_status_text(clear_left, caption_y, caption_buf, Retron27, MORSE_BASE_H, MORSE_BASE_S, MORSE_BASE_V);
+        }
+        strncpy(morse_last_drawn_caption, caption_buf, sizeof(morse_last_drawn_caption));
+        morse_last_drawn_caption[sizeof(morse_last_drawn_caption) - 1] = '\0';
+    }
+#else
+    // Caption disabled: if nothing else changed, bail early.
+    if (!changed) {
+        return;
+    }
+#endif
+
+    // clear the waveform region
     qp_rect(lcd,
             WAVE_LEFT,
             WAVE_TOP,
@@ -279,81 +569,52 @@ static void render_waveform(uint8_t layer, bool force) {
             WAVE_TOP + WAVE_HEIGHT - 1,
             0, 0, 0, true);
 
-    /* baseline line (faint) */
-    qp_rect(lcd,
-            WAVE_LEFT,
-            WAVE_BASELINE_Y,
-            WAVE_LEFT + WAVE_WIDTH - 1,
-            WAVE_BASELINE_Y,
-            color[0],
-            (uint8_t)(color[1] / 4),
-            48,
-            true);
+    // draw thin horizontal pulses for ON columns with gradient color per column
+    const uint16_t denom = (WAVE_SAMPLE_COUNT > 1) ? (WAVE_SAMPLE_COUNT - 1) : 1;
+    const int16_t cy = (int16_t)(WAVE_TOP + (WAVE_HEIGHT / 2));
+    int16_t top_y    = cy - (int16_t)((MORSE_THICKNESS - 1) / 2);
+    int16_t bottom_y = top_y + MORSE_THICKNESS - 1;
 
-    /*
-     * Draw columns with a small trailing ghost for the previous two samples.
-     * We draw from left to right so later ghost draws can be visually behind.
-     */
+    if (top_y < (int16_t)WAVE_TOP) top_y = (int16_t)WAVE_TOP;
+    if (bottom_y > (int16_t)(WAVE_TOP + WAVE_HEIGHT - 1)) bottom_y = (int16_t)(WAVE_TOP + WAVE_HEIGHT - 1);
+
+    uint8_t tail_h = MORSE_BASE_H;
+    uint8_t tail_s = MORSE_BASE_S;
+    uint8_t tail_v = MORSE_BASE_V;
+
+    const morse_color_band_t *band = &morse_color_bands[color_band];
+    uint8_t head_h = band->head_h;
+    uint8_t head_s = band->head_s;
+    uint8_t head_v = band->head_v;
+
     for (uint8_t i = 0; i < WAVE_SAMPLE_COUNT; ++i) {
-        /* For each column, draw up to 3 layers: main (offset 0) and two ghosts (offset 1..2) */
-        for (uint8_t ghost = 0; ghost < 3; ++ghost) {
-            /* source index for this ghost layer (ghost=0 is current sample) */
-            int src = (int)i - (int)ghost;
-            if (src < 0) continue;
+        if (!wave_samples[i]) continue;
 
-            uint8_t amplitude = wave_samples[src];
-            if (amplitude == 0) continue;
+        // gradient from muted lime (older) toward warmer head tone based on current WPM
+        uint16_t t = i;
+        uint8_t h = lerp_hue8(tail_h, head_h, t, denom);
+        uint8_t s = lerp_u8   (tail_s, head_s, t, denom);
+        uint8_t v = lerp_u8   (tail_v, head_v, t, denom);
 
-            /* reduce amplitude for ghosts */
-            if (ghost > 0) {
-                if (amplitude > ghost * 2) amplitude -= ghost * 2;
-                else amplitude = 0;
-                if (amplitude == 0) continue;
-            }
+        int16_t left  = (int16_t)(WAVE_LEFT + i * WAVE_SAMPLE_WIDTH);
+        int16_t right = (int16_t)(left + WAVE_SAMPLE_WIDTH - 1);
 
-            if (amplitude > WAVE_HEIGHT - 3) amplitude = WAVE_HEIGHT - 3;
-            int16_t top_y = WAVE_BASELINE_Y - amplitude;
+        qp_rect(lcd, left, top_y, right, bottom_y, h, s, v, true);
 
-            int16_t left  = WAVE_LEFT + src * WAVE_SAMPLE_WIDTH;
-            int16_t right = left + WAVE_SAMPLE_WIDTH - 1;
+        // feather the top/bottom edges for a softer, larger look
+        uint8_t glow_s = (uint8_t)(((uint16_t)s * 3) / 4);
+        uint8_t glow_v = (uint8_t)(((uint16_t)v * 3) / 4);
 
-            /* brightness/value based on amplitude and ghost level (stronger for main, dimmer for ghosts) */
-            uint16_t base_v = 120 + amplitude * 5;        // base brightness for main (roughly 120..(120+5*max))
-            if (base_v > 255) base_v = 255;
-            uint8_t v_col = (uint8_t)((ghost == 0) ? base_v : (base_v / (1 + ghost * 2)));
-
-            /* Saturation slightly reduced for ghosts to keep them subtle */
-            uint8_t s_col = (uint8_t)((ghost == 0) ? color[1] : (color[1] / 2));
-
-            /* Draw the column (filled) */
-            qp_rect(lcd,
-                    left,
-                    top_y,
-                    right,
-                    WAVE_BASELINE_Y - 1,
-                    color[0],
-                    s_col,
-                    v_col,
-                    true);
-
-            /* If this is the main layer and amplitude is tall, draw a 1-px "gap" at the peak to get a teeth effect */
-            if (ghost == 0 && amplitude > 3) {
-                int16_t peak_y = top_y;
-                if (peak_y >= WAVE_TOP && peak_y <= WAVE_TOP + WAVE_HEIGHT) {
-                    /* draw a 1-px horizontal line that's background-colored to produce a gap */
-                    qp_rect(lcd,
-                            left,
-                            peak_y,
-                            right,
-                            peak_y,
-                            0, 0, 0,
-                            true);
-                }
-            }
+        if (top_y > (int16_t)WAVE_TOP) {
+            qp_rect(lcd, left, top_y - 1, right, top_y - 1, h, glow_s, glow_v, true);
+        }
+        if (bottom_y < (int16_t)(WAVE_TOP + WAVE_HEIGHT - 1)) {
+            qp_rect(lcd, left, bottom_y + 1, right, bottom_y + 1, h, glow_s, glow_v, true);
         }
     }
 
     last_wave_color_slot = layer;
+    last_wave_band       = color_band;
 }
 
 
@@ -691,15 +952,19 @@ void keyboard_post_init_user(void) {
     color_value = rand() % 8;
 
     last_input_time = timer_read32();
-    wave_last_tick = last_input_time;
-    wave_phase = 0;
     last_wave_color_slot = 255;
-    size_t pattern_len = WAVE_PATTERN_LENGTH;
+    last_wave_band = 0xFF;
     for (uint8_t i = 0; i < WAVE_SAMPLE_COUNT; ++i) {
-        uint8_t base = wave_pattern[i % pattern_len];
-        wave_samples[i] = (uint8_t)((base * (WAVE_HEIGHT - 4)) / 18);
+        wave_samples[i] = 0;
     }
     wave_initialized = true;
+    morse_len = 0;           // force timeline build on first render
+    morse_pos = 0;
+    morse_last_tick = timer_read32();
+    morse_recent_len = 0;
+    morse_last_drawn_caption[0] = '\0';
+    morse_last_input_ms = timer_read32();
+
     last_drawn_wpm = 0xFFFF;
     wpm_ema = 0; // will initialize on first draw
     display_awake = true;
@@ -741,8 +1006,9 @@ void housekeeping_task_user(void) {
 void hlc_tft_on_activity(void) {
     // Update the inactivity timer
     last_input_time = timer_read32();
-    wave_last_tick = last_input_time;
     last_wave_color_slot = 255;
+    last_wave_band = 0xFF;
+    morse_last_input_ms = timer_read32();
 
     // Force a redraw of WPM and HUD area
     last_drawn_wpm = 0xFFFF;

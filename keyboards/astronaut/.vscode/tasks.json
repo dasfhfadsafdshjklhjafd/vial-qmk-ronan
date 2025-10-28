@@ -1,0 +1,31 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "QMK: compile astronaut/vial",
+            "type": "process",
+            "command": "C:/qmk_msys/usr/bin/bash.exe",
+            "args": [
+                "-lc",
+                "cd /c/Desktop/Python/keyboard/kb-firmware/vial-qmk && qmk compile -kb astronaut -km vial"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/../..",
+                "env": {
+                    "MSYSTEM": "MINGW64",
+                    "CHERE_INVOKING": "1",
+                    "MSYS2_PATH_TYPE": "inherit"
+                }
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "detail": "Builds the astronaut/vial firmware via the QMK CLI inside QMK MSYS."
+        }
+    ]
+}
